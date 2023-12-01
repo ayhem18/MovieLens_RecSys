@@ -47,6 +47,8 @@ It is known that content-based recommendation systems offers several advantages 
 
 # Evaluation
 
+
+
 # Results
 
 

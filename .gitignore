@@ -2,3 +2,5 @@ rs_env
 *.zip
 data/ml-100k
 experimentation
+*.csv
+*.pyc
