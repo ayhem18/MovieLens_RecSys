@@ -5,6 +5,7 @@
 
 import os, sys
 import pandas as pd
+import itertools
 
 from datetime import datetime
 from typing import Union, Tuple
@@ -104,33 +105,34 @@ def prepare_items_csv(items_file_path: Union[str, Path]) -> str:
 ############################################## PREPARING THE USERS CSV ####################################################
 
 # the users data is simpler to handle
-def prepare_users_csv(users_file_path: Union[str, Path]) -> Tuple[str, StandardScaler]:
+def prepare_users_csv(users_file_path: Union[str, Path]) -> str:
     os.makedirs(os.path.join(DATA_FOLDER, 'prepared'), exist_ok=True)
     
     if os.path.basename(users_file_path) != 'u.user':
         raise ValueError(f"The users data is expected to be saved in a file name 'u.user'. Found: {os.path.basename(users_file_path)}")
 
     users = pd.read_csv(users_file_path, sep='|', encoding='latin', header=None)
-    users.rename(columns={0:'id', 1: 'age', 2: 'gender', 3:'job', 4: 'zip_code'}, inplace=True).drop(columns=['zip_code'])
+    users = users.rename(columns={0:'id', 1: 'age', 2: 'gender', 3:'job', 4: 'zip_code'}).drop(columns=['zip_code'])
     # map the gender
     users['gender'] = users['gender'].apply(lambda x: {"M":1, "F":0}[x])
     
     save_path = os.path.join(DATA_FOLDER, 'prepared', "users.csv")
-    users.to_csv(save_path, index=False)
 
     # make sure to scale the age 
     scaler = StandardScaler()
-    users['age'] = scaler.fit_transform(users[['age']])
+    new_age = scaler.fit_transform(users[['age']].values)
+    users['age'] = new_age.squeeze()
+    users['age'] = users['age'].apply(lambda x: round(x, 6))
 
-    # return the scaler to use later to transform the test data
-    return save_path, scaler
+    users.to_csv(save_path, index=False)
+    return save_path
 
 
 ############################################## PREPARING THE RATINGS CSV ###################################################
 def encode_job_genre(df: pd.DataFrame) -> pd.DataFrame:
     # the first step is to remove the 'unknown' key from the genre dictionary as it will skew the results
     del movie_genre_index_map[0]
-    genres = list(movie_genre_index_map.keys())
+    genres = list(movie_genre_index_map.values())
     # the next step  
     fields = ['rating', 'job'] + genres
     df_reduced = df[fields]
@@ -138,14 +140,26 @@ def encode_job_genre(df: pd.DataFrame) -> pd.DataFrame:
     # let's build the representation we need
     genre_reps = []
 
-    job_df = pd.pivot_table(df, index='job', aggfunc='count')
+    job_df = pd.pivot_table(df, index='job', aggfunc='count', values='rating')
 
     for g in genres:
-        genre_df = pd.pivot_table(df_reduced[df_reduced[g] == 1], index=['job'], values='rating', aggfunc=['count', 'mean', 'std'])
+        genre_df = df_reduced[df_reduced[g] == 1]
+        # account for the possibility of having no movies with a certain genre rated in the train split
+        if len(genre_df) <= 1:
+            zeros = [0 for _ in range(len(job_df))]
+            genre_reps.append(pd.DataFrame(data={f'count_{g}': zeros, 
+                                                 f'mean_{g}': zeros, 
+                                                 f'std_{g}': 0}, index=job_df.index))
+            continue
+
+        #genre_df: will save the following information: the number of ratings (count), the average of ratings, and the standard deviation
+        # of ratings given by each job to a movie with genre: 'g'
+        genre_df = pd.pivot_table(genre_df, index=['job'], values='rating', aggfunc=['count', 'mean', 'std'])
         genre_df.columns = [f'count_{g}', f'mean_{g}', f'std_{g}']
-        
-        # make sure to divide the genre_df['count] by the total count of people in that job
-        genre_df[f'count_{g}'] = genre_df[f'count_{g}'] / job_df['count']
+
+        # reduce the total 'count' of ratings given by users with a certain job (to a certain genre) to its percentage by dividing by the
+        # total number of ratings given by users with a certain job in general
+        genre_df[f'count_{g}'] = genre_df[f'count_{g}'] / job_df['rating']
 
         # add the genre to the data
         genre_reps.append(genre_df)
@@ -153,18 +167,24 @@ def encode_job_genre(df: pd.DataFrame) -> pd.DataFrame:
     genre_features = pd.concat(genre_reps, axis=1)
 
     # make sure the resulting dataframe is of the expected shape
+    
     exp_shape = (len(df['job'].value_counts()), 3 * len(genres))
     if genre_features.shape != exp_shape:
         raise ValueError(f"The expected shape for the 'job' representations is: {exp_shape}. Found: {genre_features.shape}")
 
-    # now it is time to replace the 'job' column in the original dataframe
+    # now it is time to replace the 'job' column in the original dataframe with the new representation
     # build the dataframe to concatenate horizontally to existing data.
-    extra_df =  pd.concat([genre_features.loc[row['job'], :].values for _, row in df.iterrows()], axis=0) 
+    extra_df =  pd.concat([genre_features.loc[[row['job']], :] for _, row in df.iterrows()], axis=0) 
 
+    if extra_df.shape != (len(df), 3 * len(genres)):
+        raise ValueError((f"Please make sure the extra dataframe with new representations of 'job' is of the right shape.\n"
+                          f"Expected: {(len(df), 3 * len(genres))}. Found: {extra_df.shape}"))
+
+    extra_df.index = df.index.copy()
     # concatenate the extra dataframe to the original one
-    final_df = pd.concat([df, extra_df], axis=1)
+    final_df = pd.concat([df.drop(columns=['job']), extra_df], axis=1)
     # make sure to remove the 'job' column at this point
-    return final_df.drop(columns=['job'])
+    return final_df
 
 
 def prepare_model_data(prepared_users_path: Union[str, Path],  
@@ -193,6 +213,12 @@ def prepare_model_data(prepared_users_path: Union[str, Path],
 
     # time to encode the job in terms of the genres
     all_data = encode_job_genre(all_data)    
+    # reorder the columns for easier manipulation 
+    final_order = (['user_id', 'item_id', 'age', 'gender'] + 
+                   list(itertools.chain(*[[f'count_{g}', f'mean_{g}', f'std_{g}'] for g in list(movie_genre_index_map.values())])) 
+                   + ['unknown'] + list(movie_genre_index_map.values()) + ['year', 'rating'])
+      
+    all_data = all_data[final_order]
     # save the resulting dataframe
     all_data.to_csv(save_path, index=False)
     return all_data
