@@ -222,3 +222,21 @@ def prepare_model_data(prepared_users_path: Union[str, Path],
     # save the resulting dataframe
     all_data.to_csv(save_path, index=False)
     return all_data
+
+
+if __name__ == '__main__':
+    users, items = os.path.join(DATA_FOLDER, 'ml-100k', 'u.user'), os.path.join(DATA_FOLDER, 'ml-100k', 'u.item'), 
+    
+    users = prepare_users_csv(users)
+    items = prepare_items_csv(items)
+
+    # prepare_model_data(prepared_users_path=users, 
+    #                    prepared_items_path=items, 
+    #                    ratings_path=os.path.join(DATA_FOLDER, 'ml-100k', 'u1.base'),
+    #                    save_path=os.path.join(DATA_FOLDER, 'prepared', f'u1_train.csv')) 
+
+    prepare_model_data(prepared_users_path=users, 
+                       prepared_items_path=items, 
+                       ratings_path=os.path.join(DATA_FOLDER, 'ml-100k', 'u1.test'),
+                       save_path=os.path.join(DATA_FOLDER, 'prepared', f'u1_test.csv')) 
+    

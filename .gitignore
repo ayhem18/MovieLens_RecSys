@@ -4,3 +4,4 @@ data/ml-100k
 experimentation
 *.csv
 *.pyc
+wandb
