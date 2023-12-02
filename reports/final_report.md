@@ -31,23 +31,40 @@ A|B
 
 The combination of these 2 figures suggests that Even though only 216 (please check the movie_data_analysis notebook for the code) combinations of genres out of $2^{19}$ possible combinations are present, the combinations are still diverse (we cannot reduce the)
 
-Therefore, the interactions between the different genres are
-    * too complex to be significantly improved with feature engineering
-    * too sparse in consideration of the total number of features.
+Therefore, the interactions between the different genres are:
+*  too complex to be significantly improved with feature engineering
+* too sparse in consideration of the total number of features.
 
 It is known that content-based recommendation systems offers several advantages such as nich recommendataions, scalability and simpliticiy. Nevertheless, the success of such an approach heavily depends on the quality of the item representations. In our case the item features are unlikely to be expressive enough.
 
 
 
 # Model Implementation
+The suggested model has 4 main components: 
+
+1. 2 embeddings layers (nn.Embedding from pytorch). The model will be given the index of the user $i$ and the index of the movie $j$. The model learns embeddings for both $i$ and $j$. I denote the embedding dimension by $n$
+2. A linear block (several dense layers + ReLU) that accepts the context vector, a vector of all the information about the user, the video, and the user history all concatenated into a single input vector. The linear block outputs a non-linear latent representation of the initial input of dimension $2 \cdot n$
+3. A concatenation layer that concatenates the embedding of $i$-th user and $j$-th user and the output of the linear block: a $4 \cdot n$ vector 
+4. Another linear block that ends with 2 heads: One head of classification: whether the $i-th$ user watched the $j$-th movie and another for regression: predicting the user's rating.
 
 # Model Advantages and Disadvantages
+Let's start with the disadvantages: 
+
+* This model is experimental. It is a combination of several ideas I encountered in the literature, online tutorials as explained above
+* The model is relatively complex and might be prone to overfitting (mainly due to the small size of the dataset)
+* Using the video information helps reduce the cold start problem. Nevertheless, the effect of the default embeddings (for our of vocabulary indices) is not exactly known
+
+As for the advantages:
+
+1. The model is not only trained for the classification but also for regression. So the model will not only learn to predict whether the user $i$ is going to watch the movie $j$ but also use the ratings (when available) to improve the model confidence
+2. The model takes advantage of all the available data, which might help overcome the issue with the data size
+3. The model uses negative sampling which helps avoids data folding.
+4. Deep Learning models are much more likely to construct a complex and non-linear features that linear classifier simply cannot. 
+This is crucial for our setting since data analysis shows that the interaction between the initial feature and the target (either rating or binary target) are quite complex.
 
 # Training Process
 
 # Evaluation
-
-
 
 # Results
 
