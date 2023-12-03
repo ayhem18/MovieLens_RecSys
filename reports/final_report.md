@@ -29,7 +29,7 @@ A|B
 ![movie_per_genre](./figures/movies_and_num_genres.png)
  | ![alt](./figures/genre_heatmap.png)
 
-The combination of these 2 figures suggests that Even though only 216 (please check the movie_data_analysis notebook for the code) combinations of genres out of $2^{19}$ possible combinations are present, the combinations are still diverse (we cannot reduce the)
+The combination of these 2 figures suggests that Even though only 216 (please check the movie_data_analysis notebook for the code) out of $2^{19}$ possible combinations are present, the combinations are still diverse (we cannot manually determine the major combinations and limit the cardinality of this categorical field)
 
 Therefore, the interactions between the different genres are:
 *  too complex to be significantly improved with feature engineering
@@ -37,9 +37,53 @@ Therefore, the interactions between the different genres are:
 
 It is known that content-based recommendation systems offers several advantages such as nich recommendataions, scalability and simpliticiy. Nevertheless, the success of such an approach heavily depends on the quality of the item representations. In our case the item features are unlikely to be expressive enough.
 
+<h3 align="center">
+Building a good-performing Recommendation system on this dataset would require Collaborative Filtering.
+</h3>
+
+## Analysing the user data
+User is associated with 4 fields: 
+1. id
+2. age
+3. gender
+4. job
+5. zip_code
+
+It was interesting to consider the demographics of our users: The age distribution is quite similar to the Gaussian distribution: 
+![alt](./figures/age_distribution.png)
+
+This is quite promising since Normal distribution is known for its desirable statistical properities and the data can be converted to Standard Distribution by using scaling.
+
+zip_code was considered a slightly  problematic column due to its large number of unique values without inherent direct correlation to the user's movie taste. Thus, the first step was to extract more detailed information: the state. Even the *'state'* variable still had very skewed distribution as displayed below:
+![alt](./figures/state_distribution.png)
+
+The final decision was to drop this column.
+
+
+The initial distirbution of 'jobs' is quite similar to that of states. However, grouping jobs seems much more promising / natural than grouping users based on their geolocation information. 
+
+This hypothesis was further investigated  while exploring the ratings data.
+
+## Ratings
+The main remark while exploring the ratings, is the significant skewness of the distribution of the number of ratings. We can see that most of the movies have rated very few times, while a minority of movies have been rated frequently enough to build a statistically reliable profile of such movies.
+![alt](./figures/movies_rates.png) | ![alt](./figures/ratings_per_portion.png)
+
+
+At this point, we still have a categorical column with no numerical representation: ***user's job***. The main goal of this analysis is to build a numerical (hopefully significant) representation of this column.  
+
+The final representation was produced by extracting the 'count', 'mean' and 'std' of the ratings of each job per genre. This representation expanded the user representation by $19 * 3 = 57$ features.
 
 
 # Model Implementation
+## Thought process
+Based on the EDA carried out previously leads a number of conclusions: 
+1. The representation of the movie data is not expressive enough to build a content-based Recommender system
+2. classical ML might not be enough since the interaction between the features is quite complex. Thus, Deep Learning presents itself as the most promising direction as it can learn and capture the complex and non-linear interactions between the features.
+
+A brief literature review exposed me to very interesting ideas: 
+1. Collaborative filtering can be introduced in DL by using classification and negative simpling while learning embeddings of users and items 
+
+
 The suggested model has 4 main components: 
 
 1. 2 embeddings layers (nn.Embedding from pytorch). The model will be given the index of the user $i$ and the index of the movie $j$. The model learns embeddings for both $i$ and $j$. I denote the embedding dimension by $n$

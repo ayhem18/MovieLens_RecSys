@@ -67,8 +67,8 @@ def _prepare_date_column(df: pd.DataFrame) -> pd.DataFrame:
     df_c =  df_c.apply(extract_year, axis='columns').drop(columns=['date'])
 
     # since all movies are in the range [1900, 2000[, we can use this information to rescale
-    df_c['year'] = (df_c['year'] - 1900) / 100
-    # the tran
+    # df_c['year'] = (df_c['year'] - 1900) / 100
+
     return df_c
 
 
@@ -119,10 +119,10 @@ def prepare_users_csv(users_file_path: Union[str, Path]) -> str:
     save_path = os.path.join(DATA_FOLDER, 'prepared', "users.csv")
 
     # make sure to scale the age 
-    scaler = StandardScaler()
-    new_age = scaler.fit_transform(users[['age']].values)
-    users['age'] = new_age.squeeze()
-    users['age'] = users['age'].apply(lambda x: round(x, 6))
+    # scaler = StandardScaler()
+    # new_age = scaler.fit_transform(users[['age']].values)
+    # users['age'] = new_age.squeeze()
+    # users['age'] = users['age'].apply(lambda x: round(x, 6))
 
     users.to_csv(save_path, index=False)
     return save_path
@@ -235,8 +235,8 @@ if __name__ == '__main__':
     #                    ratings_path=os.path.join(DATA_FOLDER, 'ml-100k', 'u1.base'),
     #                    save_path=os.path.join(DATA_FOLDER, 'prepared', f'u1_train.csv')) 
 
-    prepare_model_data(prepared_users_path=users, 
-                       prepared_items_path=items, 
-                       ratings_path=os.path.join(DATA_FOLDER, 'ml-100k', 'u1.test'),
-                       save_path=os.path.join(DATA_FOLDER, 'prepared', f'u1_test.csv')) 
+    # prepare_model_data(prepared_users_path=users, 
+    #                    prepared_items_path=items, 
+    #                    ratings_path=os.path.join(DATA_FOLDER, 'ml-100k', 'u1.test'),
+    #                    save_path=os.path.join(DATA_FOLDER, 'prepared', f'u1_test.csv')) 
     

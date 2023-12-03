@@ -11,6 +11,7 @@ import numpy  as np
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 from typing import Union, List, Tuple
 from pathlib import Path
+from tqdm import tqdm
 
 
 home = os.path.dirname(os.path.realpath(__file__))
@@ -256,8 +257,8 @@ class RecSysInferenceDataset(IterableDataset):
 
     def __iter__(self) -> Tuple[int, torch.Tensor]:
         # for optimization purposes, use only users in the test set
-        test_users = sorted(self.test_ratings['user_id'].tolist())
-        for i in test_users:
+        test_users = sorted(list(set(self.test_ratings['user_id'])))
+        for i in tqdm(test_users):
             # get the data as numpy array
             ui_vector = self.__getitem__(i)
             # divide it into several batches
