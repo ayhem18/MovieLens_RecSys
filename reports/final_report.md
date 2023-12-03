@@ -20,14 +20,15 @@ A movie is associated with 24 initial columns: id, title, link to the imdb page,
 
 5. A couple of interesting remarks can be made about the genre columns: 
 
-1. Genre Inbalance: 
-![movie_per_genre](./figures/movie_per_genre.png)
+    1. Genre Inbalance: 
 
-2. Sparsity: only $5\%$ of movies have more than $4$ genres:
+    ![movie_per_genre](./figures/movie_per_genre.png)
 
-A|B
-![movie_per_genre](./figures/movies_and_num_genres.png)
- | ![alt](./figures/genre_heatmap.png)
+    2. Sparsity: only $5\%$ of movies have more than $4$ genres:
+
+    A|B
+    ![movie_per_genre](./figures/movies_and_num_genres.png)
+    | ![alt](./figures/genre_heatmap.png)
 
 The combination of these 2 figures suggests that Even though only 216 (please check the movie_data_analysis notebook for the code) out of $2^{19}$ possible combinations are present, the combinations are still diverse (we cannot manually determine the major combinations and limit the cardinality of this categorical field)
 
@@ -58,8 +59,7 @@ This is quite promising since Normal distribution is known for its desirable sta
 zip_code was considered a slightly  problematic column due to its large number of unique values without inherent direct correlation to the user's movie taste. Thus, the first step was to extract more detailed information: the state. Even the *'state'* variable still had very skewed distribution as displayed below:
 ![alt](./figures/state_distribution.png)
 
-The final decision was to drop this column.
-
+The final decision was to discard the geographical information as it might require extensive processing while displaying little to no statistical significance.
 
 The initial distirbution of 'jobs' is quite similar to that of states. However, grouping jobs seems much more promising / natural than grouping users based on their geolocation information. 
 
@@ -67,10 +67,15 @@ This hypothesis was further investigated  while exploring the ratings data.
 
 ## Ratings
 The main remark while exploring the ratings, is the significant skewness of the distribution of the number of ratings. We can see that most of the movies have rated very few times, while a minority of movies have been rated frequently enough to build a statistically reliable profile of such movies.
+
 ![alt](./figures/movies_rates.png) | ![alt](./figures/ratings_per_portion.png)
 
 
-At this point, we still have a categorical column with no numerical representation: ***user's job***. The main goal of this analysis is to build a numerical (hopefully significant) representation of this column.  
+### Feature Engineering
+The pull_data_together notebook includes a couple of feature engineering tricks to reprsent the 'job' field numerically: mainly in terms of ratings for specific genres. Nevertheless, it seems that the 'job' as well as 'genres' are not as discriminative since the representations of different jobs are quite similar as shown below: The values presented are cosine similarities
+
+![alt](./figures/job_similarity.png)
+
 
 The final representation was produced by extracting the 'count', 'mean' and 'std' of the ratings of each job per genre. This representation expanded the user representation by $19 * 3 = 57$ features.
 
@@ -145,18 +150,36 @@ The final objective is to recommend items to a given movie. Given the nature of 
 
 * for a user $i$, Predict the probabilities that user $i$ watched the movie $x$. Choose the movies with the highest probabilities.
 
-I evaluate the performance of the model by computing 3 metrics
+## Evaluation metrics
+I evaluate the performance of the model by computing 4 metrics.
 
 1. Mean Squared Error between the predicted ratings and the actual ones
-2. Mean Average Precision
-3. recall at k (R@k), 
-4. precision at k (P@k)
+2. Recall at k (R@k):  
+3. Precision at k (P@k): 
+4. Mean Average Precision
 
-$k$ was chosen as $20$
+The last metrics are considered standard in MAchine Learing and related areas such as Information retrieval. $k$ was chosen as $20$
 
 # Results
 The model achieved the following results
+1. MSE Loss on test split: 1.12. (common between the 2 recommendation approaches)
 
-1. MSE Loss on test split: 1.12. 
-2. 
-3. 
+As for the Regression-based approach: 
+
+MAP: 0.005710814315827257
+Precision@K: 0.0230246396790885
+Recall@K: 0.021433214982249572
+
+As for the Classification-based recommendation: 
+
+MAP: 0.0053081095561827545
+Precision@K: 0.022287930256884646
+Recall@K: 0.02070060509076555
+
+We can see that both approaches perform poorly on the test split. (predicting 1 to 2 items out of the true items per user). 
+
+This can be explained by the quality of the data: 
+1. skewness in ratings: many users have few ratings overall (which is not enough to model their taste in movies) and most films are assigned few ratings
+2. 19 binary very sparse features are definitely not enough to model such a complex concept such as a movie. 
+3. Little to no statistical significant for most features: genre, zip_code, job...
+

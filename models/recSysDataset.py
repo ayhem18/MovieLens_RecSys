@@ -308,17 +308,12 @@ class RecSysInferenceDataset(IterableDataset):
 
 if __name__ == '__main__':
 
+    # an example how to use the dataloaders
     all_user_ids = list(range(1, 944))
     all_item_ids = list(range(1, 1683))
 
     train_csv = pd.read_csv(os.path.join(DATA_FOLDER, 'prepared', 'u1_train.csv'))
     test_csv = pd.read_csv(os.path.join(DATA_FOLDER, 'prepared', 'u1_test.csv'))
-
-    users_train = set(train_csv['user_id'])
-    users_test = set(test_csv['user_id'])
-
-    print(users_test.difference(users_train))
-
 
     train_ds = RecSysDataset(ratings=os.path.join(DATA_FOLDER, 'prepared', 'u1_train.csv'), 
                         user_data_cols=USER_DATA_COLS,
@@ -333,8 +328,6 @@ if __name__ == '__main__':
                                   pin_memory=True, 
                                   collate_fn=RecSysDataset.collate_fn)
 
-    b1 = next(iter(train_dataloader))     
-
     val_ds = RecSysDataset(ratings=os.path.join(DATA_FOLDER, 'prepared', f'u1_test.csv'),
                             user_data_cols=USER_DATA_COLS, 
                             item_data_cols=ITEM_DATA_COLS,
@@ -342,25 +335,11 @@ if __name__ == '__main__':
                             use_all_history=True,
                             all_items_ids=all_item_ids, 
                             all_users_ids=all_user_ids)
-
-    # for i in range(len(val_ds)):
-    #     try: 
-    #         train_ds[i]
-    #     except  KeyError:
-    #         print(f'key: {i} is fucking things over !!')
-
+    
     val_dl = DataLoader(val_ds,
                         batch_size=10, 
                         shuffle=False,
                         num_workers=2,
                         pin_memory=True,
                         collate_fn=RecSysDataset.collate_fn)
-
-    b2 =next(iter(val_dl))
-
-    x1, y11, y21 = b1
-    x2, y12, y22 = b2
     
-    print(x1.shape, y11.shape, y21.shape)
-    print(x2.shape, y12.shape, y22.shape)
-    print(x1.shape == x2.shape)

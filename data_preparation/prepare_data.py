@@ -230,13 +230,13 @@ if __name__ == '__main__':
     users = prepare_users_csv(users)
     items = prepare_items_csv(items)
 
-    # prepare_model_data(prepared_users_path=users, 
-    #                    prepared_items_path=items, 
-    #                    ratings_path=os.path.join(DATA_FOLDER, 'ml-100k', 'u1.base'),
-    #                    save_path=os.path.join(DATA_FOLDER, 'prepared', f'u1_train.csv')) 
+    prepare_model_data(prepared_users_path=users, 
+                       prepared_items_path=items, 
+                       ratings_path=os.path.join(DATA_FOLDER, 'ml-100k', 'u1.base'),
+                       save_path=os.path.join(DATA_FOLDER, 'prepared', f'u1_train.csv')) 
 
-    # prepare_model_data(prepared_users_path=users, 
-    #                    prepared_items_path=items, 
-    #                    ratings_path=os.path.join(DATA_FOLDER, 'ml-100k', 'u1.test'),
-    #                    save_path=os.path.join(DATA_FOLDER, 'prepared', f'u1_test.csv')) 
+    prepare_model_data(prepared_users_path=users, 
+                       prepared_items_path=items, 
+                       ratings_path=os.path.join(DATA_FOLDER, 'ml-100k', 'u1.test'),
+                       save_path=os.path.join(DATA_FOLDER, 'prepared', f'u1_test.csv')) 
     

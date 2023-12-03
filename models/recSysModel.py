@@ -359,9 +359,6 @@ def recommend(model: RecSys,
 
 
     for user_id, model_input in inf_ds:
-        # if user_id > 10:
-        #     break
-
         item_ids = model_input[:, 1].detach().cpu().numpy().astype(np.int32)
         # get the model's output
 
@@ -422,9 +419,11 @@ if __name__ == '__main__':
                      "num_context_blocks": 4, 
                      "num_features_blocks":8, 
                      } 
+    
     # main_train_function(configuration=configuration, 
     #      num_epochs=1000, 
     #      run_name='rs_bigger_scale')
+
     train_csv = pd.read_csv(os.path.join(DATA_FOLDER, 'prepared', 'u1_train.csv'))
     test_csv = pd.read_csv(os.path.join(DATA_FOLDER, 'prepared', 'u1_test.csv'))
 
@@ -451,4 +450,3 @@ if __name__ == '__main__':
                 method='regression'
               )
     
-    print(recommendataions)
