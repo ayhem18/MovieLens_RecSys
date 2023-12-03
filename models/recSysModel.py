@@ -9,21 +9,21 @@ import torch
 import torch.nn.functional as F
 import torchvision.transforms as tr
 import random
-import shutil
 import wandb
 import pandas as pd
+import numpy as np
 
 random.seed(69)
 torch.manual_seed(69)
 
 from torch import optim
 from pathlib import Path
-from typing import Any, Union, Sequence, Tuple, Dict
+from typing import Any, Union, Sequence, Tuple, Dict, List
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
-from sklearn.model_selection import train_test_split
 from torch import nn
+from collections import defaultdict
 
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning import seed_everything
@@ -47,9 +47,11 @@ print(DATA_FOLDER)
 WANDB_PROJECT_NAME = 'recommendatation_system'
 
 import utilities.directories_and_files as dirf
+import utilities.pytorch_utilities as pu
+
 from models.classification_head import ExponentialClassifier
-from models.building_blocks import LinearBlock
-from models.recSysDataset import RecSysDataset, USER_DATA_COLS, ITEM_DATA_COLS
+from models.recSysDataset import RecSysDataset, USER_DATA_COLS, ITEM_DATA_COLS, RecSysInferenceDataset
+
 
 class RecSys(L.LightningModule):
     def __init__(self, 
@@ -114,7 +116,7 @@ class RecSys(L.LightningModule):
             raise ValueError(f"The input is expected to be 2 dimensional. Found: {x.shape}")
         
         # convert to the float data type
-        x = x.to(torch.float)
+        x = x.to(torch.float).to(pu.get_module_device(self))
         # the first step is to extract the user and item ids        
         user_ids, item_ids = x[:, 0].to(torch.long), x[:, 1].to(torch.long)
         # make sure user_ids and item_ids are of dim 1
@@ -200,7 +202,6 @@ class RecSys(L.LightningModule):
         # create lr scheduler
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=self.gamma)
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
-
 
 
 def train_classifier(configuration: Dict, 
@@ -300,7 +301,7 @@ def train_classifier(configuration: Dict,
                 )
 
 
-def main(configuration, 
+def main_train_function(configuration, 
          run_name: str, 
          num_epochs:int):
     print("main started !!")
@@ -322,14 +323,132 @@ def main(configuration,
             num_epochs=num_epochs)    
 
 
+def recommend(model: RecSys, 
+              train_ratings: Union[pd.DataFrame, str, Path], 
+              test_ratings: Union[pd.DataFrame, str, Path],
+              all_users: List[int], 
+              all_items: List[int],
+              save_path: Union[str, Path],
+              method: str = 'classification',  
+              top_k_items: int = 20, 
+              batch_size: int = 100) -> List[int]:
+    
+    metds = ['classification', 'regression', 'embeddings']
+    if method not in metds:
+        raise ValueError(f"The method is expected to be one of the following: {metds}. Found: {method}")
+
+    # make sure to set the model to the evaluation state
+    model.eval()
+
+    train_ratings = pd.DataFrame(train_ratings) if isinstance(train_ratings, (Path, str)) else train_ratings
+    test_ratings = pd.DataFrame(test_ratings) if isinstance(test_ratings, (Path, str)) else test_ratings
+
+    # build an inference dataset
+    inf_ds = RecSysInferenceDataset(train_ratings=train_ratings, 
+                                    test_ratings=test_ratings,
+                                    all_users_ids=all_users, 
+                                    all_items_ids=all_items, 
+                                    user_cols=USER_DATA_COLS, 
+                                    item_cols=ITEM_DATA_COLS, 
+                                    batch_size=batch_size)
+    results_classification = defaultdict(lambda : {})
+    results_regression = defaultdict(lambda: {})
+
+    all_users = set(all_users)
+    all_items = set(all_items)
+
+
+    for user_id, model_input in inf_ds:
+        # if user_id > 10:
+        #     break
+
+        item_ids = model_input[:, 1].detach().cpu().numpy().astype(np.int32)
+        # get the model's output
+
+        if user_id not in all_users:
+            raise ValueError(f"check user_id. user_id: {user_id}")
+
+        for iid in item_ids:
+            if iid not in all_items:
+                raise ValueError(f"check item id: {iid}")
+
+        with torch.no_grad():
+            class_logits, reg_logits = model.forward(model_input, output='both')
+            class_predictions, reg_predictions = (torch.squeeze(F.sigmoid(class_logits)).detach().cpu().numpy(), 
+                                                4 * torch.squeeze(F.sigmoid(reg_logits)).detach().cpu().numpy() + 1)
+        
+        if class_predictions.size == 1:
+            if len(item_ids) != 1:
+                raise ValueError(f"The number of predictions do not match the number of items")
+            class_predictions = np.asarray([class_predictions.item()])
+
+        elif len(class_predictions) != len(item_ids):
+            raise ValueError(f"The number of predictions do not match the number of items. preds: {len(class_predictions)}, items: {len(item_ids)}")
+
+        if reg_predictions.size == 1:
+            if len(item_ids) != 1:
+                raise ValueError(f"The number of predictions do not match the number of items")
+            reg_predictions = np.asarray([reg_predictions.item()])
+
+        elif len(reg_predictions) != len(item_ids):
+            raise ValueError(f"The number of predictions do not match the number of items. preds: {len(reg_predictions)}, items: {len(item_ids)}")
+
+        results_classification[user_id].update({i_id: cp for i_id, cp in zip(item_ids, class_predictions)})
+        results_regression[user_id].update({i_id: cp for i_id, cp in zip(item_ids, reg_predictions)})
+
+
+    for user_id, _ in results_classification.items():    
+        # sort the results in descending order
+        results_classification[user_id] = sorted(results_classification[user_id].items(), key=lambda x: x[1], reverse=True)
+    
+    for user_id, _ in results_regression.items():
+        results_regression[user_id] = sorted(results_regression[user_id].items(), key=lambda x: x[1], reverse=True)
+
+    if method == 'classification':
+        recs = {user_id: [x[0] for x in res[:top_k_items]] for user_id, res in results_classification.items()}
+
+    elif method == 'regression':
+        recs = {user_id: [x[0] for x in res[:top_k_items]] for user_id, res in results_regression.items()}
+    
+    recs_csv = pd.DataFrame(data=recs).T
+    recs_csv.columns = [f'item_{i}' for i in range(1, top_k_items + 1)] 
+
+    recs_csv.to_csv(save_path)
+    return recs
+
 
 if __name__ == '__main__':
     configuration = {"emb_dim": 16,
                      "num_context_blocks": 4, 
                      "num_features_blocks":8, 
                      } 
-    main(configuration=configuration, 
-         num_epochs=1000, 
-         run_name='rs_bigger_scale')
-    # sanity_check(run_name='hypertune_scene_classifier')
+    # main_train_function(configuration=configuration, 
+    #      num_epochs=1000, 
+    #      run_name='rs_bigger_scale')
+    train_csv = pd.read_csv(os.path.join(DATA_FOLDER, 'prepared', 'u1_train.csv'))
+    test_csv = pd.read_csv(os.path.join(DATA_FOLDER, 'prepared', 'u1_test.csv'))
 
+    chkpnt_path = os.path.join(PARENT_DIR, 'models/rs_runs/exp_7/classifier-epoch=554-val_reg_loss=1.078150.ckpt')
+    rec_sys = RecSys.load_from_checkpoint(checkpoint_path=chkpnt_path).to('cuda' if torch.cuda.is_available else 'cpu')
+
+    # let's try recommending items
+    recommendataions = recommend(model=rec_sys, 
+                train_ratings=train_csv,
+                test_ratings=test_csv, 
+                all_users=list(range(1, 944)),
+                all_items=list(range(1, 1683)),
+                save_path=os.path.join(SCRIPT_DIR,'recommendations_classification.csv'),
+                batch_size = 200
+              )
+
+    recommendataions = recommend(model=rec_sys, 
+                train_ratings=train_csv,
+                test_ratings=test_csv, 
+                all_users=list(range(1, 944)),
+                all_items=list(range(1, 1683)),
+                save_path=os.path.join(SCRIPT_DIR,'recommendataions_regression.csv'),
+                batch_size = 200,
+                method='regression'
+              )
+    
+    print(recommendataions)

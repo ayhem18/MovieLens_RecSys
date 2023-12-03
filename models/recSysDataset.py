@@ -8,7 +8,7 @@ import random
 import pandas as pd
 import numpy  as np
 
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, IterableDataset
 from typing import Union, List, Tuple
 from pathlib import Path
 
@@ -69,7 +69,11 @@ class RecSysDataset(Dataset):
 
         self.user_index2id = {k: v for k, v in enumerate(sorted(list(self.data_user_ids)))}
         self.item_index2id = {k: v for k, v in enumerate(sorted(list(self.data_item_ids)))} 
-        
+
+        self.user_id2index = {v: k for k, v in enumerate(sorted(list(self.data_user_ids)))}
+        self.item_id2index = {v: k for k, v in enumerate(sorted(list(self.data_item_ids)))} 
+
+
         expected_layout = ['user_id', 'item_id'] + self.user_cols + self.item_cols + ['rating']
         if list(self.ratings.columns) != expected_layout:
             raise ValueError((f"Please make sure the data layout is as follows : {expected_layout}\n."
@@ -106,9 +110,6 @@ class RecSysDataset(Dataset):
         # there might be cases where there is only one rated item, the 'rated_items' object will be a numpy array
         if isinstance(rated_items, float):
             return np.asarray([[user_id, rated_items]])            
-            pos_items = [rated_items]
-            samples = user_ratings.copy()
-            ratings = np.asarray([rated_items])
 
         pos_items = random.sample(rated_items, min(self.num_pos_samples, len(rated_items)))
         samples = user_ratings[user_ratings['item_id'].isin(pos_items)]
@@ -206,6 +207,102 @@ class RecSysDataset(Dataset):
     def collate_fn(cls, batch):
         x, y1, y2 = list(map(list, zip(*batch)))
         return torch.cat(x, dim=0), torch.cat(y1, dim=0), torch.cat(y2, dim=0)
+
+
+class RecSysInferenceDataset(IterableDataset):
+    def __init__(self, 
+                 train_ratings: pd.DataFrame, 
+                 test_ratings: pd.DataFrame, 
+                 all_users_ids: List[int], 
+                 all_items_ids: List[int], 
+                 user_cols: List[str], 
+                 item_cols: List[str], 
+                 batch_size: int = 10
+                 ) -> None:
+        super().__init__()
+
+        self.user_cols = user_cols  
+        self.item_cols = item_cols
+
+        self.train_ratings = train_ratings
+        self.test_ratings = test_ratings
+
+        expected_layout = ['user_id', 'item_id'] + self.user_cols + self.item_cols + ['rating']
+        if list(self.train_ratings.columns) != expected_layout:
+            raise ValueError((f"Please make sure the data layout is as follows : {expected_layout}\n."
+                             f"Found: {list(self.ratings.columns)}"))
+
+        self.all_user_ids = all_users_ids
+        self.all_item_ids = all_items_ids
+        
+        # build a map between indices and the id
+        self.index_2id = {k: v for k, v in enumerate(self.all_user_ids)}
+        self.train_ratings.set_index('user_id')
+
+        self.batch_size = batch_size
+
+    def _build_user_history(self, user_ratings: pd.DataFrame, item_ids: List[int]) -> pd.DataFrame:
+        # define the user history
+        history = np.zeros(shape=(len(item_ids), len(self.item_cols)))
+        for index, ii in enumerate(item_ids):
+            # make sure the samples have 'item_id' as index
+            h = user_ratings.loc[:ii, self.item_cols].values
+            ratings = (user_ratings.loc[:ii, 'rating'] / 5).values
+            ratings = np.expand_dims(ratings, axis=1) if ratings.ndim == 1 else ratings
+            history[index] = np.mean(h * ratings, axis=0)
+
+        return history
+
+
+    def __iter__(self) -> Tuple[int, torch.Tensor]:
+        # for optimization purposes, use only users in the test set
+        test_users = sorted(self.test_ratings['user_id'].tolist())
+        for i in test_users:
+            # get the data as numpy array
+            ui_vector = self.__getitem__(i)
+            # divide it into several batches
+            for j in range(0, len(ui_vector), self.batch_size):
+                yield i, torch.from_numpy(ui_vector[j: j + self.batch_size])
+
+
+    def __getitem__(self, user_id) -> torch.Tensor:
+        # extract the all the information about the user ratings
+        user_ratings = self.train_ratings.loc[[user_id], :]
+        # get all the items the user have already rated
+        rated_items = set(user_ratings['item_id'])
+        # extract unrated items
+        unrated_items = [i_id for i_id in self.all_item_ids if i_id not in rated_items]
+        train_items = set(self.train_ratings['item_id'])
+
+        unrated_train_items = [i_id for i_id in train_items if i_id not in rated_items]
+        unrated_test_items = [i_id for i_id in self.all_item_ids if (i_id not in train_items)]
+
+        if len(unrated_train_items) + len(unrated_test_items) != len(unrated_items):
+            raise ValueError(f"Check your logic. Split the unrated items between train and test") 
+
+        # the user data is ready
+        user_data = np.concatenate([user_ratings.loc[:, self.user_cols].iloc[[0], :].values for _ in unrated_items], axis=0)
+
+        train_items_data = np.concatenate([self.train_ratings[self.train_ratings['item_id'] == ii].loc[:, self.item_cols].iloc[[0], :].values for ii in unrated_train_items], axis=0)
+        test_items_data = np.concatenate([self.test_ratings[self.test_ratings['item_id'] == ii].loc[:, self.item_cols].iloc[[0], :].values for ii in unrated_test_items], axis=0)
+
+        items_data = np.concatenate([train_items_data, test_items_data], axis=0)
+
+        all_history = self._build_user_history(user_ratings=user_ratings.set_index('item_id'), 
+                                               item_ids=[user_ratings['item_id'].iloc[-1]])
+        
+        # expand the history to include all the unrated items
+        # concatenate vertically: axis=0
+        all_history = np.concatenate([all_history for _ in unrated_items], axis=0)
+        
+        items_to_evaluate = np.concatenate([np.asarray([[user_id, ii] for ii in unrated_items]),  
+                                user_data, 
+                                items_data, 
+                                all_history], 
+                                axis=1)
+        
+        return items_to_evaluate
+
 
 
 if __name__ == '__main__':
