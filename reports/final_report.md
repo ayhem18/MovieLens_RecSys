@@ -41,6 +41,7 @@ It is known that content-based recommendation systems offers several advantages 
 Building a good-performing Recommendation system on this dataset would require Collaborative Filtering.
 </h3>
 
+
 ## Analysing the user data
 User is associated with 4 fields: 
 1. id
@@ -81,15 +82,40 @@ Based on the EDA carried out previously leads a number of conclusions:
 2. classical ML might not be enough since the interaction between the features is quite complex. Thus, Deep Learning presents itself as the most promising direction as it can learn and capture the complex and non-linear interactions between the features.
 
 A brief literature review exposed me to very interesting ideas: 
-1. Collaborative filtering can be introduced in DL by using classification and negative simpling while learning embeddings of users and items 
 
+1. Collaborative filtering can be introduced in DL by using classification and negative simpling while learning embeddings of users and items
+![alt](./figures/paper_1.png) 
 
-The suggested model has 4 main components: 
+The paper can be accessed through [\[1\]](https://arxiv.org/pdf/1708.05031.pdf)
+
+2. Youtube Research team managed to boost the performance of their Recommenders by aggregating the user's history: embedding of previous videos watched as well as search history. I tried to incorporate this idea into my approach: 
+![alt](./figures/paper_2.png) 
+
+The paper can be accessed through [\[2\]](https://research.google/pubs/pub45530/)
+
+Thus, 
+
+My suggested model has 4 main components: 
 
 1. 2 embeddings layers (nn.Embedding from pytorch). The model will be given the index of the user $i$ and the index of the movie $j$. The model learns embeddings for both $i$ and $j$. I denote the embedding dimension by $n$
 2. A linear block (several dense layers + ReLU) that accepts the context vector, a vector of all the information about the user, the video, and the user history all concatenated into a single input vector. The linear block outputs a non-linear latent representation of the initial input of dimension $2 \cdot n$
 3. A concatenation layer that concatenates the embedding of $i$-th user and $j$-th user and the output of the linear block: a $4 \cdot n$ vector 
 4. Another linear block that ends with 2 heads: One head of classification: whether the $i-th$ user watched the $j$-th movie and another for regression: predicting the user's rating.
+
+
+# Training Process
+We can consider 2 main points in the training process:
+1. I used the 'u1.base' and 'u1.test' for training. This split is initially provided in the data. It satisfies a common assumption that all users in test are present in training (while the items in test might be necessary seen in the train split)
+
+2. Negative Sampling: I introduce negative sampling by passing both positive and negative pairs (user_id, item_id). The model learns by predicting both whether the user 'u_id' watched the movie 'i_id' and in the same time predict the rate for positive samples.
+
+3. Adding history Data: The input to the model is of the following structure: 
+<h4 align="center">
+user_id, item_id, user features, user_history, video features
+</h4>
+
+user_history is average of the video features weighted by their ratings for positive samples and the entire history for negative ones. Additionally, I sort the user data by the rating time (for a pair (u_id, i_id), the history will be the average the features of the movies that were rated before the pair in question)
+
 
 # Model Advantages and Disadvantages
 Let's start with the disadvantages: 
@@ -106,10 +132,31 @@ As for the advantages:
 4. Deep Learning models are much more likely to construct a complex and non-linear features that linear classifier simply cannot. 
 This is crucial for our setting since data analysis shows that the interaction between the initial feature and the target (either rating or binary target) are quite complex.
 
-# Training Process
 
 # Evaluation
+## Recommendataion Procedure
+Given a pair (user: i, item: j), the model is trained to predict: 
+1. Whether $i$ watched $j$
+2. The rating that $i$ gives to $j$ (if watched)
+
+The final objective is to recommend items to a given movie. Given the nature of the model, this objective can be achieved in 2 ways: 
+
+* for a user $i$, Predict the ratings for each pair (i, x) for each movie $x$ in the test set, choose $k$ movies with the top predicted ratings
+
+* for a user $i$, Predict the probabilities that user $i$ watched the movie $x$. Choose the movies with the highest probabilities.
+
+I evaluate the performance of the model by computing 3 metrics
+
+1. Mean Squared Error between the predicted ratings and the actual ones
+2. Mean Average Precision
+3. recall at k (R@k), 
+4. precision at k (P@k)
+
+$k$ was chosen as $20$
 
 # Results
+The model achieved the following results
 
-
+1. MSE Loss on test split: 1.12. 
+2. 
+3. 
