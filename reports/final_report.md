@@ -109,6 +109,11 @@ My suggested model has 4 main components:
 3. A concatenation layer that concatenates the embedding of $i$-th user and $j$-th user and the output of the linear block: a $4 \cdot n$ vector 
 4. Another linear block that ends with 2 heads: One head of classification: whether the $i-th$ user watched the $j$-th movie and another for regression: predicting the user's rating.
 
+Here is a graphical representation of the model architecture.
+
+![alt](./figures/model_architecture.png) 
+
+
 
 # Training Process
 We can consider 2 main points in the training process:

@@ -3,6 +3,7 @@ rs_env
 data/ml-100k
 experimentation
 *.csv
+!benchmark/recommendations/*.csv
 *.pyc
 wandb
 *.ckpt
