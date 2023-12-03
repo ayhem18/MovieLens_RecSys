@@ -5,3 +5,4 @@ experimentation
 *.csv
 *.pyc
 wandb
+*.ckpt

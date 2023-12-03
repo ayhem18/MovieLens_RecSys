@@ -66,7 +66,7 @@ class RecSys(L.LightningModule):
                  *args, 
                  **kwargs
                  ):
-        
+        super().__init__(*args, **kwargs)
         self.n_users = num_users
         self.n_items = num_items
         self.emb_dim = emb_dim
@@ -102,7 +102,6 @@ class RecSys(L.LightningModule):
         self.gamma = gamma
 
         self.save_hyperparameters()
-        self.log_data = pd.DataFrame(data=[], columns=['image', 'predictions', 'labels', 'val_loss', 'epoch'])
 
     def forward(self, 
                 x: torch.Tensor, 
@@ -113,16 +112,19 @@ class RecSys(L.LightningModule):
         # make sure the input is 2d
         if x.ndim > 2: 
             raise ValueError(f"The input is expected to be 2 dimensional. Found: {x.shape}")
+        
+        # convert to the float data type
+        x = x.to(torch.float)
         # the first step is to extract the user and item ids        
-        user_ids, item_ids = x[0, :], x[1, 0]
+        user_ids, item_ids = x[:, 0].to(torch.long), x[:, 1].to(torch.long)
         # make sure user_ids and item_ids are of dim 1
         user_ids = torch.squeeze(user_ids) if user_ids.ndim != 1 else user_ids
         item_ids = torch.squeeze(item_ids) if item_ids.ndim != 1 else item_ids
 
-        # pass the each set of ids to the corresponding embedding layer
+        # pass each set of ids to the corresponding embedding layer
         user_embds, item_embds = self.user_emb_layer.forward(user_ids), self.item_emb_layer.forward(item_ids)
         # pass the context to the context block
-        context_features = self.context_block.forward(x[2:, :])
+        context_features = self.context_block.forward(x[:, 2:])
 
         # concatenate the embeddings and the context features
         representation = self.representation_block.forward(torch.cat([user_embds, item_embds, context_features], dim=1))
@@ -137,42 +139,62 @@ class RecSys(L.LightningModule):
         
         return clss, reg
 
-    def _forward_pass(self, batch, loss_reduced: bool = True):
-        x, clss_y, reg_y = batch
+    def _forward_pass(self, batch):
+        x, clss_y, reg_y,  = batch
 
-        clss, reg = self.forward(x, output='both')
+        # convert all the tensors in the batch to the float dtype 
+        x = x.to(torch.float)
+        clss_y = clss_y.to(torch.float)
+        reg_y = reg_y.to(torch.float)
+
+        # the outputs of the forward method are logits
+        class_logits, reg_logits = self.forward(x, output='both')
+        
+        # compute the actual predictions: classes and ratings
+        class_predictions, reg_predictions = torch.squeeze(F.sigmoid(class_logits)), 4 * torch.squeeze(F.sigmoid(reg_logits)) + 1
 
         # calculate the binary cross entropy loss
-        cls_loss = F.binary_cross_entropy(clss, clss_y)
+        cls_loss = F.binary_cross_entropy(class_predictions, clss_y)
         # filter the regression output
         unseen_items_mask = clss_y != 0            
-        reg = torch.masked_select(reg, unseen_items_mask)
+        reg_predictions = torch.masked_select(reg_predictions, unseen_items_mask)
         reg_y = torch.masked_select(reg_y, unseen_items_mask)
         # compute the mse loss
-        reg_loss = F.mse_loss(reg, reg_y)
+        reg_loss = F.mse_loss(reg_predictions, reg_y)
 
-        return clss, reg, cls_loss, reg_loss            
+        # calculate the accuracy
+        accuracy = torch.mean(((class_predictions > 0.5).to(torch.long) == clss_y.to(torch.long)).to(torch.float))
+
+        return class_predictions, reg_predictions, cls_loss, reg_loss, accuracy            
 
     def training_step(self, batch, batch_idx, *args: Any, **kwargs: Any) -> STEP_OUTPUT:
-        _, _, cls_loss, reg_loss = self._forward_pass(batch)
+        _, _, cls_loss, reg_loss, accuracy = self._forward_pass(batch)
         final_loss = reg_loss + self.coeff * cls_loss 
 
         self.log_dict({"train_cls_loss": cls_loss.cpu().item(), 
                        "train_reg_loss": reg_loss.cpu().item(), 
-                       "loss": final_loss.cpu().item()})
+                       "train_loss": final_loss.cpu().item(), 
+                       "train_accuracy": accuracy})
         return final_loss 
 
     def validation_step(self, batch, batch_idx, *args: Any, **kwargs: Any) -> STEP_OUTPUT:        
-        _, _, _, reg_loss = self._forward_pass(batch)
+        _, _, cls_loss, reg_loss, val_accuracy = self._forward_pass(batch)
         # the batch is expected to have only positive samples    
-        self.log_dict({'val_reg_loss': reg_loss.cpu().item()})
+        self.log_dict({"val_cls_loss": cls_loss.cpu().item(), 
+                       "val_reg_loss": reg_loss.cpu().item(), 
+                       "val_accuracy": val_accuracy}) 
 
     def configure_optimizers(self):
         # since the encoder is pretrained, we would like to avoid significantly modifying its weights/
         # on the other hand, the rest of the AE should have higher learning rates.
+        parameters = [{"params": self.item_emb_layer.parameters(), "lr": self.lr},
+        {"params": self.user_emb_layer.parameters(), "lr": self.lr},
+        {"params": self.context_block.parameters(), "lr": self.lr}, 
+        {"params": self.representation_block.parameters(), "lr": self.lr},
+        {"params": self.classification_head.parameters(), "lr": self.lr},
+        {"params": self.regression_head.parameters(), "lr": self.lr},
+        ]
 
-        parameters = [{"params": self.avgpool.parameters(), "lr": self.lr},
-                      {"params": self.head.parameters(), "lr": self.lr}]
         # add a learning rate scheduler        
         optimizer = optim.Adam(parameters, lr=self.lr)
         # create lr scheduler
@@ -209,57 +231,65 @@ def train_classifier(configuration: Dict,
     # process the path
     log_dir = dirf.process_save_path(log_dir, file_ok=False)
 
+    all_user_ids = list(range(1, 944))
+    all_item_ids = list(range(1, 1683))
+
     # create the dataset
     train_ds = RecSysDataset(
                     ratings=train_csv_path, 
                     user_data_cols=USER_DATA_COLS,
-                    item_data_cols=ITEM_DATA_COLS, 
-                    negative_sampling=True,
-                    )  
+                    item_data_cols=ITEM_DATA_COLS,
+                    all_items_ids=all_item_ids,
+                    all_users_ids=all_user_ids, 
+                    negative_sampling=True)
     
     train_dl = DataLoader(train_ds, 
-                                  batch_size=batch_size, 
-                                  num_workers=0,
+                                  batch_size=batch_size,
                                   shuffle=True,
-                                  pin_memory=True)
+                                  pin_memory=True,
+                                collate_fn=RecSysDataset.collate_fn)
+
     
     if val_csv_path is not None:
         val_ds = RecSysDataset(ratings=val_csv_path,
                                user_data_cols=USER_DATA_COLS, 
                                item_data_cols=ITEM_DATA_COLS,
                                negative_sampling=False,
+                               all_items_ids=all_item_ids,
+                               all_users_ids=all_user_ids, 
                                use_all_history=True)
         
         val_dl = DataLoader(val_ds, 
-                                    batch_size=batch_size, 
-                                    num_workers=0,
-                                    shuffle=False,
-                                    pin_memory=True)
+                            batch_size=batch_size,
+                            shuffle=False,
+                            pin_memory=True,
+                            collate_fn=RecSysDataset.collate_fn)
+
     else:
         val_dl = None
 
     checkpnt_callback = ModelCheckpoint(dirpath=log_dir, 
                                         save_top_k=5, 
-                                        monitor="val_loss",
+                                        monitor="val_reg_loss",
                                         mode='min', 
                                         # save the checkpoint with the epoch and validation loss
-                                        filename='classifier-{epoch:02d}-{val_loss:06f}')
+                                        filename='classifier-{epoch:02d}-{val_reg_loss:06f}')
 
     # define the trainer
     trainer = L.Trainer(
-                        accelerator='gpu', 
+                        accelerator='gpu',
                         devices=1,
                         logger=wandb_logger,
                         default_root_dir=log_dir,
                         
                         max_epochs=num_epochs,
                         check_val_every_n_epoch=3,
-
+                        log_every_n_steps=25,
                         deterministic=True,
                         callbacks=[checkpnt_callback])
 
-    model = RecSys(num_users=len(train_ds.all_user_ids), 
-                   num_items=len(train_ds.all_item_ids), 
+    model = RecSys(num_users=len(all_user_ids) + 1, 
+                   num_items=len(all_item_ids) + 1, 
                    context_length=len(train_ds.user_cols) + 2 * len(train_ds.item_cols), 
                    **configuration)
     
@@ -277,9 +307,9 @@ def main(configuration,
     wandb.login(key='36259fe078be47d3ffd8f3b2628a4d773c6e1ce7')
 
     train_csv_path = os.path.join(DATA_FOLDER, 'prepared', 'u1_train.csv')
-    val_csv_path = os.path.join(DATA_FOLDER, 'prepared', f'u1_test.csv')
+    val_csv_path = os.path.join(DATA_FOLDER, 'prepared', 'u1_test.csv')
 
-    logs = os.path.join(SCRIPT_DIR, 'classifier_runs')
+    logs = os.path.join(SCRIPT_DIR, 'rs_runs')
     os.makedirs(logs, exist_ok=True)
 
     train_classifier(
@@ -294,12 +324,12 @@ def main(configuration,
 
 
 if __name__ == '__main__':
-    configuration = {"emb_dim": 20,
-                     "num_context_blocks": 2, 
-                     "num_features_blocks": 4, 
+    configuration = {"emb_dim": 16,
+                     "num_context_blocks": 4, 
+                     "num_features_blocks":8, 
                      } 
     main(configuration=configuration, 
-         num_epochs=15, 
-         run_name='recommendation_system_1')
+         num_epochs=1000, 
+         run_name='rs_bigger_scale')
     # sanity_check(run_name='hypertune_scene_classifier')
 
