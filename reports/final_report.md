@@ -2,6 +2,7 @@ Ayhem Bouabid DS-BS-20
 a.bouabid@innopolis.university
 
 # Introduction
+This is my report for the 2nd PMLDL assignment. Please take a look at the ReadME file for more details about the github repository
 
 # Data analysis
 ## Movie Data
@@ -52,6 +53,7 @@ User is associated with 4 fields:
 5. zip_code
 
 It was interesting to consider the demographics of our users: The age distribution is quite similar to the Gaussian distribution: 
+
 ![alt](./figures/age_distribution.png)
 
 This is quite promising since Normal distribution is known for its desirable statistical properities and the data can be converted to Standard Distribution by using scaling.
@@ -158,28 +160,38 @@ I evaluate the performance of the model by computing 4 metrics.
 3. Precision at k (P@k): 
 4. Mean Average Precision
 
-The last metrics are considered standard in MAchine Learing and related areas such as Information retrieval. $k$ was chosen as $20$
+The last metrics are considered standard in MAchine Learing and related areas such as Information retrieval. 
+
+$k$ was chosen as $20$
 
 # Results
 The model achieved the following results
+
 1. MSE Loss on test split: 1.12. (common between the 2 recommendation approaches)
 
 As for the Regression-based approach: 
 
 MAP: 0.005710814315827257
+
 Precision@K: 0.0230246396790885
+
 Recall@K: 0.021433214982249572
 
 As for the Classification-based recommendation: 
 
 MAP: 0.0053081095561827545
+
 Precision@K: 0.022287930256884646
+
 Recall@K: 0.02070060509076555
 
 We can see that both approaches perform poorly on the test split. (predicting 1 to 2 items out of the true items per user). 
 
 This can be explained by the quality of the data: 
+
 1. skewness in ratings: many users have few ratings overall (which is not enough to model their taste in movies) and most films are assigned few ratings
+
 2. 19 binary very sparse features are definitely not enough to model such a complex concept such as a movie. 
+
 3. Little to no statistical significant for most features: genre, zip_code, job...
 

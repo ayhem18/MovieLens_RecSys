@@ -414,16 +414,7 @@ def recommend(model: RecSys,
     return recs
 
 
-if __name__ == '__main__':
-    configuration = {"emb_dim": 16,
-                     "num_context_blocks": 4, 
-                     "num_features_blocks":8, 
-                     } 
-    
-    # main_train_function(configuration=configuration, 
-    #      num_epochs=1000, 
-    #      run_name='rs_bigger_scale')
-
+def main_recommend_function():
     train_csv = pd.read_csv(os.path.join(DATA_FOLDER, 'prepared', 'u1_train.csv'))
     test_csv = pd.read_csv(os.path.join(DATA_FOLDER, 'prepared', 'u1_test.csv'))
 
@@ -449,4 +440,17 @@ if __name__ == '__main__':
                 batch_size = 200,
                 method='regression'
               )
+
+
+if __name__ == '__main__':
+
+    configuration = {"emb_dim": 16,
+                     "num_context_blocks": 4, 
+                     "num_features_blocks":8, 
+                     } 
+    
+    main_train_function(configuration=configuration, 
+         num_epochs=1000, 
+         run_name='rs_bigger_scale')
+
     
