@@ -108,6 +108,19 @@ class RecSys(L.LightningModule):
     def forward(self, 
                 x: torch.Tensor, 
                 output: str = 'both') -> Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
+        """This function extracts the user_id, item_id, and features in the input
+        passes each of them to the corresponding layer
+        and then the output is concatenated and passed to the 'representation block' to create the final features. 
+
+        Args:
+            x (torch.Tensor): _description_
+            output (str, optional): _description_. Defaults to 'both'.
+
+        Returns:
+            Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]: _description_
+        """
+
+
         if output not in ['both', 'classification', 'regression']: 
             raise ValueError(f"The 'output' argument is expected to belong to {['both', 'classification', 'regression']}\nFound: {output}")
 
@@ -211,7 +224,18 @@ def train_classifier(configuration: Dict,
                     run_name: str = None,
                     batch_size: int = 32,
                     num_epochs: int = 10):
+    """This function given the model configuration, train data and validation data will train the REcommender system 
+    Args:
+        configuration (Dict): model configuration
+        train_csv_path (Union[str, Path]): train_data saved in csv
+        val_csv_path (Union[str, Path], optional):val_data saved in csv. Defaults to None.
+        log_dir (Union[str, Path], optional): _description_. Defaults to None.
+        run_name (str, optional): _description_. Defaults to None.
+        batch_size (int, optional): _description_. Defaults to 32.
+        num_epochs (int, optional): _description_. Defaults to 10.
+    """
 
+    # wandb details for logging
     wandb.init(project=WANDB_PROJECT_NAME, 
                name=run_name)
     
@@ -235,7 +259,7 @@ def train_classifier(configuration: Dict,
     all_user_ids = list(range(1, 944))
     all_item_ids = list(range(1, 1683))
 
-    # create the dataset
+    # create the datasets and dataloaders
     train_ds = RecSysDataset(
                     ratings=train_csv_path, 
                     user_data_cols=USER_DATA_COLS,
@@ -340,6 +364,7 @@ def recommend(model: RecSys,
     # make sure to set the model to the evaluation state
     model.eval()
 
+    # extract the train and test data
     train_ratings = pd.DataFrame(train_ratings) if isinstance(train_ratings, (Path, str)) else train_ratings
     test_ratings = pd.DataFrame(test_ratings) if isinstance(test_ratings, (Path, str)) else test_ratings
 
@@ -351,14 +376,15 @@ def recommend(model: RecSys,
                                     user_cols=USER_DATA_COLS, 
                                     item_cols=ITEM_DATA_COLS, 
                                     batch_size=batch_size)
+    
     results_classification = defaultdict(lambda : {})
     results_regression = defaultdict(lambda: {})
 
     all_users = set(all_users)
     all_items = set(all_items)
 
-
     for user_id, model_input in inf_ds:
+        # for each user: get the mode;'s output
         item_ids = model_input[:, 1].detach().cpu().numpy().astype(np.int32)
         # get the model's output
 
@@ -371,9 +397,11 @@ def recommend(model: RecSys,
 
         with torch.no_grad():
             class_logits, reg_logits = model.forward(model_input, output='both')
+            # get the classification and regression predictions
             class_predictions, reg_predictions = (torch.squeeze(F.sigmoid(class_logits)).detach().cpu().numpy(), 
                                                 4 * torch.squeeze(F.sigmoid(reg_logits)).detach().cpu().numpy() + 1)
-        
+
+        # some checks to make sure the shapes are as expected
         if class_predictions.size == 1:
             if len(item_ids) != 1:
                 raise ValueError(f"The number of predictions do not match the number of items")
@@ -390,10 +418,12 @@ def recommend(model: RecSys,
         elif len(reg_predictions) != len(item_ids):
             raise ValueError(f"The number of predictions do not match the number of items. preds: {len(reg_predictions)}, items: {len(item_ids)}")
 
+        # each id is mapped to its prediction in a dictionary and saved in the corresponding 'results' object
         results_classification[user_id].update({i_id: cp for i_id, cp in zip(item_ids, class_predictions)})
         results_regression[user_id].update({i_id: cp for i_id, cp in zip(item_ids, reg_predictions)})
 
-
+    # filter the results: get rid of the probabilities and predicted ratings 
+    # and pick up the final recommendations depending on the method
     for user_id, _ in results_classification.items():    
         # sort the results in descending order
         results_classification[user_id] = sorted(results_classification[user_id].items(), key=lambda x: x[1], reverse=True)

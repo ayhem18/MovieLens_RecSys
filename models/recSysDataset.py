@@ -91,7 +91,16 @@ class RecSysDataset(Dataset):
         self.use_all_history = use_all_history
 
 
-    def _build_user_history(self, user_ratings: pd.DataFrame, item_ids: List[int]) -> pd.DataFrame:
+    def _build_user_history(self, user_ratings: pd.DataFrame, item_ids: List[int]) -> np.ndarray:
+        """The function aggregates the the video features for a given users before the given item_id
+
+        Args:
+            user_ratings (pd.DataFrame): All the information about the user's rating
+            item_ids (List[int]): only items rated before 'item_ids' will be included in the history
+
+        Returns:
+            np.ndarray: The representation of the user's history
+        """
         # define the user history
         history = np.zeros(shape=(len(item_ids), len(self.item_cols)))
         for index, ii in enumerate(item_ids):
@@ -104,6 +113,16 @@ class RecSysDataset(Dataset):
         return history
 
     def _positive_sampling(self, user_id: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Sample positive pairs: (user_id, item_id, user_data, user_history, item_data) 
+        where 'user_id' rated 'item_id'
+
+        Args:
+            user_id (int): the user for which to sample positive pairs
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, np.ndarray]: batch of model input, batch of classification labels, batch of regression labels: ratings
+        """
+        
         user_ratings = self.ratings.loc[[user_id], :]
         # get the items rated by this user
         rated_items = user_ratings['item_id'].tolist()
@@ -135,6 +154,16 @@ class RecSysDataset(Dataset):
         return np.nan_to_num(samples), np.ones(shape=(samples.shape[0])), ratings
 
     def _negative_sampling(self, user_id: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Sample negative pairs: (user_id, item_id, user_data, user_history, item_data) 
+        where 'user_id' did not rate 'item_id' (making sure they are from the given dataset)
+
+        Args:
+            user_id (int): the user for which to sample positive pairs
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, np.ndarray]: batch of model input, batch of classification labels, batch of regression labels: ratings (pseudo labels '-1')
+        """
+
         user_ratings = self.ratings.loc[user_id, :]
         # get the items rated by this user
         rated_items = set(list(user_ratings['item_id']))
@@ -169,6 +198,14 @@ class RecSysDataset(Dataset):
         return len(self.data_user_ids)
 
     def __getitem__(self, index) -> torch.Tensor:
+        """This function maps an index to the user id, then for the given user id carries out
+        1. positive sampling
+        2. negative sampling
+        3. extra checks for data correctness
+
+        Returns:
+            torch.Tensor: Concatenation of positive and negative samples and labels
+        """
         user_id = self.user_index2id[index]
         # concatenate both positive and negative samples                
         pos, pos_c, pos_r = self._positive_sampling(user_id=user_id)
@@ -184,13 +221,6 @@ class RecSysDataset(Dataset):
             if neg.shape[1] != col_nums or pos.shape[1] != col_nums:
                 raise ValueError(f"Expected num columns: {col_nums}. Found: {neg.shape} for negative samples and {pos.shape} for positive samples")
 
-            # if pos_c.shape != pos_r.shape:
-            #     raise ValueError(f"Expected {(self.num_pos_samples,)} for positive labels. Found: {pos_c.shape}")
-
-            # if neg_c.shape != neg_r.shape or neg_c.shape != (self.num_neg_samples,):
-            #     raise ValueError((f"Expected {(self.num_neg_samples,)} for negative labels. Found: {neg_c.shape} for classification," 
-            #                      f"{neg_r.shape} for regression"))
-            
             if np.isnan(neg).sum() > 0:
                 raise ValueError(f"There are nan values in the negative samples. IT WILL MESS UP THE MODEL !!")
 
@@ -206,6 +236,11 @@ class RecSysDataset(Dataset):
 
     @classmethod
     def collate_fn(cls, batch):
+        """this is a collate function used mainly to convert batch from [3dimensional output to 2 dimensional output] without losing
+        the correct order of the data
+        Returns:
+            The final batch passed to the model
+        """
         x, y1, y2 = list(map(list, zip(*batch)))
         return torch.cat(x, dim=0), torch.cat(y1, dim=0), torch.cat(y2, dim=0)
 
@@ -243,6 +278,9 @@ class RecSysInferenceDataset(IterableDataset):
         self.batch_size = batch_size
 
     def _build_user_history(self, user_ratings: pd.DataFrame, item_ids: List[int]) -> pd.DataFrame:
+        """
+        same function as the one described above
+        """
         # define the user history
         history = np.zeros(shape=(len(item_ids), len(self.item_cols)))
         for index, ii in enumerate(item_ids):
@@ -256,6 +294,9 @@ class RecSysInferenceDataset(IterableDataset):
 
 
     def __iter__(self) -> Tuple[int, torch.Tensor]:
+        """
+        This function will return an input to the model for all pairs (user_id, item_id) where user_id is in the test model
+        """
         # for optimization purposes, use only users in the test set
         test_users = sorted(list(set(self.test_ratings['user_id'])))
         for i in tqdm(test_users):
@@ -267,6 +308,11 @@ class RecSysInferenceDataset(IterableDataset):
 
 
     def __getitem__(self, user_id) -> torch.Tensor:
+        """
+        This function returs a tensor of the form: (user_id, item_id, user_data, user_history, item_data) for all items in the inference data.
+        These tensors are later batched
+        """
+        
         # extract the all the information about the user ratings
         user_ratings = self.train_ratings.loc[[user_id], :]
         # get all the items the user have already rated

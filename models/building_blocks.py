@@ -20,6 +20,9 @@ torch.manual_seed(69)
 
 
 class LinearBlock(nn.Module):
+    """A linear block that adds both activation, dropout and BatchNormalization on top of
+    a nn.Linear pytorch layer
+    """
     # let's define a class method that will map the activation name to the correct layer
     activation_functions = {"leaky_relu": nn.LeakyReLU,
                             "relu": nn.ReLU,
@@ -64,54 +67,3 @@ class LinearBlock(nn.Module):
 
     def named_children(self) -> Iterator[Module]:
         return self.block.children()
-
-
-class LinearNet(nn.Module):
-    def build(self,
-              in_features: int,
-              out_features: int,
-              num_layers: int,
-              activation: str,
-              last_layer_is_final: bool = True):
-        # the first and final layer are always present
-        num_layers = num_layers + 2
-        # compute the number of hidden units
-        hidden_units = [int(u) for u in np.linspace(in_features, out_features, num=num_layers)]
-
-        layers = [LinearBlock(in_features=hidden_units[i], out_features=hidden_units[i + 1], activation=activation,
-                              is_final=False) for i in range(len(hidden_units) - 2)]
-
-        # the last linear block should be set as 'final'
-        layers.append(
-            LinearBlock(in_features=hidden_units[-2], out_features=hidden_units[-1], is_final=last_layer_is_final,
-                        activation=activation))
-
-        return nn.Sequential(*layers)
-
-    def __init__(self,
-                 in_features: int,
-                 out_features: int,
-                 num_layers: int = 1,
-                 activation: str = 'leaky_relu',
-                 last_layer_is_final: bool = True,
-                 *args,
-                 **kwargs):
-        super().__init__(*args, **kwargs)
-        # let's make it a simple encoder
-        self.net = self.build(in_features=in_features,
-                              out_features=out_features,
-                              num_layers=num_layers,
-                              activation=activation,
-                              last_layer_is_final=last_layer_is_final)
-
-    def forward(self, x: torch.Tensor):
-        return self.net.forward(x)
-
-    def __str__(self) -> str:
-        return self.net.__str__()
-
-    def children(self) -> Iterator[Module]:
-        return self.net.children()
-
-    def named_children(self) -> Iterator[Module]:
-        return self.net.children()

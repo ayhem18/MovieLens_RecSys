@@ -73,6 +73,10 @@ def _prepare_date_column(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def prepare_items_csv(items_file_path: Union[str, Path]) -> str:
+    """This function prepares the items data
+    Returns:
+        str: path of the prepared items csc file
+    """
     # make sure the destination of the file exists
     os.makedirs(os.path.join(DATA_FOLDER, 'prepared'), exist_ok=True)
     
@@ -106,6 +110,12 @@ def prepare_items_csv(items_file_path: Union[str, Path]) -> str:
 
 # the users data is simpler to handle
 def prepare_users_csv(users_file_path: Union[str, Path]) -> str:
+    """This function prepares the user data
+    1. converting the gender to numerical value
+    2. scaling the age variable
+    Returns:
+        str: path to the new users csv file
+    """
     os.makedirs(os.path.join(DATA_FOLDER, 'prepared'), exist_ok=True)
     
     if os.path.basename(users_file_path) != 'u.user':
@@ -119,10 +129,10 @@ def prepare_users_csv(users_file_path: Union[str, Path]) -> str:
     save_path = os.path.join(DATA_FOLDER, 'prepared', "users.csv")
 
     # make sure to scale the age 
-    # scaler = StandardScaler()
-    # new_age = scaler.fit_transform(users[['age']].values)
-    # users['age'] = new_age.squeeze()
-    # users['age'] = users['age'].apply(lambda x: round(x, 6))
+    scaler = StandardScaler()
+    new_age = scaler.fit_transform(users[['age']].values)
+    users['age'] = new_age.squeeze()
+    users['age'] = users['age'].apply(lambda x: round(x, 6))
 
     users.to_csv(save_path, index=False)
     return save_path
@@ -130,6 +140,15 @@ def prepare_users_csv(users_file_path: Union[str, Path]) -> str:
 
 ############################################## PREPARING THE RATINGS CSV ###################################################
 def encode_job_genre(df: pd.DataFrame) -> pd.DataFrame:
+    """This function encoders the 'job' column in the user dataframe.
+
+    Args:
+        df (pd.DataFrame): users dataframe
+
+    Returns:
+        pd.DataFrame: new dataframe with the 'job' file encoded
+    """
+    
     # the first step is to remove the 'unknown' key from the genre dictionary as it will skew the results
     del movie_genre_index_map[0]
     genres = list(movie_genre_index_map.values())
@@ -192,6 +211,18 @@ def prepare_model_data(prepared_users_path: Union[str, Path],
                        ratings_path: Union[str, Path],
                        save_path: Union[str, Path],
                        ) -> Tuple[pd.DataFrame, StandardScaler]:
+    """Given the prepared
+
+    Args:
+        prepared_users_path (Union[str, Path): processed users data
+        prepared_items_path (Union[str, Path]): processed items data  
+        ratings_path (Union[str, Path]): th
+        save_path (Union[str, Path]): path to save the new file
+
+    Returns:
+        Tuple[pd.DataFrame, StandardScaler]: The path to the final result and the scaler used for the age variable
+    """
+    
     if os.path.basename(prepared_users_path) != 'users.csv':
         raise ValueError(f"The data is expected to be saved in 'users.csv' file. Found: {os.path.basename(prepare_users_csv)}")
 

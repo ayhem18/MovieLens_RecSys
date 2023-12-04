@@ -129,8 +129,7 @@ class ExponentialClassifier(ClassificationHead):
                  dropout: Optional[Union[List[float], float]]=None,
                  activation: str = 'relu',
                  last_block_final: bool = True):
-        
-
+    
         # the usual parent's class call
         super().__init__(num_classes, in_features, activation)
         self.num_layers = num_layers
@@ -153,7 +152,13 @@ class ExponentialClassifier(ClassificationHead):
 
 
     def _build_classifier(self):
+        """
+        This function determines the number of units in the hidden layers using np.logspace function
+        The hidden units will be linearly spread in the log space: 
         
+        for example 64, 32, 16, 8, 4, 2, 1: for in_features = 64, num_classes=1
+        and num_layers = 6
+        """
         log_input = np.log2(self.in_features)
         base_power = int(np.log2(self.in_features))
 
